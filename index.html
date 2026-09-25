@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DataShapes — Morphing Objects</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0b0e14;
+    color: #f0e6d0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    user-select: none;
+  }
+  canvas { display: block; }
+
+  #header {
+    position: absolute;
+    top: 20px;
+    left: 24px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  #header h1 {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #a8966a;
+    margin-bottom: 2px;
+  }
+  #header p {
+    font-size: 11px;
+    color: #5a6072;
+    letter-spacing: 1px;
+  }
+
+  #shape-label {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font-size: 28px;
+    font-weight: 300;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: rgba(240, 230, 208, 0.08);
+    pointer-events: none;
+    transition: color 0.6s;
+  }
+  #shape-label.visible { color: rgba(240, 230, 208, 0.12); }
+
+  #stats {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    z-index: 10;
+    text-align: right;
+    pointer-events: none;
+  }
+  #stats div {
+    font-size: 11px;
+    color: #5a6072;
+    letter-spacing: 1px;
+    line-height: 1.6;
+  }
+  #stats span { color: #a8966a; }
+
+  #shape-selector {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 620px;
+  }
+  #shape-selector button {
+    background: rgba(26, 32, 48, 0.6);
+    border: 1px solid #2a2f40;
+    color: #8a92a8;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: inherit;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  #shape-selector button:hover {
+    background: #1f2638;
+    color: #f0e6d0;
+  }
+  #shape-selector button.active {
+    background: #1f2638;
+    border-color: #a8966a;
+    color: #f0e6d0;
+  }
+
+  #node-info {
+    position: absolute;
+    top: 72px;
+    left: 24px;
+    z-index: 10;
+    background: rgba(11, 14, 20, 0.8);
+    border: 1px solid #2a2f40;
+    border-radius: 6px;
+    padding: 10px 16px;
+    min-width: 180px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    backdrop-filter: blur(6px);
+  }
+  #node-info.visible { opacity: 1; }
+  #node-info .name { font-size: 13px; font-weight: 600; color: #f0e6d0; }
+  #node-info .detail { font-size: 11px; color: #8a92a8; margin-top: 2px; }
+  #node-info .badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 8px;
+    border-radius: 8px;
+    background: #1a2030;
+    color: #a8966a;
+    margin-top: 4px;
+    border: 1px solid #2a2f40;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  #key-hint {
+    position: absolute;
+    bottom: 120px;
+    right: 24px;
+    z-index: 10;
+    font-size: 10px;
+    color: #2a2f40;
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>DataShapes</h1>
+  <p>morphing shape engine</p>
+</div>
+
+<div id="stats">
+  <div>nodes <span id="node-count">0</span></div>
+  <div>edges <span id="edge-count">0</span></div>
+</div>
+
+<div id="shape-label">shape</div>
+
+<div id="shape-selector">
+  <button data-shape="cube">Cube</button>
+  <button data-shape="pyramid">Pyramid</button>
+  <button data-shape="sphere">Sphere</button>
+  <button data-shape="torus">Torus</button>
+  <button data-shape="helix">Helix</button>
+  <button data-shape="bird">Bird</button>
+  <button data-shape="brain">Brain</button>
+  <button data-shape="lightbulb">Lightbulb</button>
+  <button data-shape="tree">Tree</button>
+</div>
+
+<div id="node-info">
+  <div class="name" id="info-name">—</div>
+  <div class="detail" id="info-detail"></div>
+  <div class="badge" id="info-badge"></div>
+</div>
+
+<div id="key-hint">drag · scroll · R = auto-rotate</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─── Data Model ────────────────────────────────────────────
+const DOMAINS = [
+  { name: 'Customer', color: 0x4a7c6f },
+  { name: 'Product',   color: 0x7a6a4a },
+  { name: 'Market',    color: 0x5a6a8a },
+  { name: 'Finance',   color: 0x8a6a5a },
+  { name: 'Operations',color: 0x5a7a6a },
+  { name: 'Channel',   color: 0x6a5a8a },
+  { name: 'Support',   color: 0x7a6a5a },
+  { name: 'Growth',    color: 0x6a7a5a },
+  { name: 'Risk',      color: 0x8a5a5a },
+];
+const SUFFIXES = [
+  'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon',
+  'Prime', 'Core', 'Edge', 'Node', 'Flux',
+];
+
+let nodeData = [];
+function generateNodeData(count) {
+  nodeData = [];
+  for (let i = 0; i < count; i++) {
+    const d = DOMAINS[i % DOMAINS.length];
+    const s = SUFFIXES[Math.floor(i / DOMAINS.length) % SUFFIXES.length];
+    nodeData.push({
+      id: i, name: `${d.name} ${s}`,
+      domain: d.name, subgroup: s, color: d.color,
+    });
+  }
+}
+
+// ─── Shape Definitions ─────────────────────────────────────
+// Each returns N positions [{x,y,z}, ...] forming a recognizable object
+
+function shapeCube(N) {
+  const pts = [];
+  const side = 5;
+  const half = side / 2;
+  const perFace = Math.max(1, Math.floor(N / 6));
+  function scatter(nx, ny, nz, ux, uy, uz, vx, vy, vz) {
+    for (let i = 0; i < perFace && pts.length < N; i++) {
+      const u = (Math.random() - 0.5) * side;
+      const v = (Math.random() - 0.5) * side;
+      pts.push({
+        x: nx*half + ux*u + vx*v,
+        y: ny*half + uy*u + vy*v,
+        z: nz*half + uz*u + vz*v,
+      });
+    }
+  }
+  scatter( 1,0,0, 0,1,0, 0,0,1);
+  scatter(-1,0,0, 0,1,0, 0,0,1);
+  scatter(0, 1,0, 1,0,0, 0,0,1);
+  scatter(0,-1,0, 1,0,0, 0,0,1);
+  scatter(0,0, 1, 1,0,0, 0,1,0);
+  scatter(0,0,-1, 1,0,0, 0,1,0);
+  while (pts.length < N) pts.push({...pts[pts.length-1]});
+  return pts.slice(0, N);
+}
+
+function shapePyramid(N) {
+  const pts = [];
+  const h = 5, base = 5;
+  const half = base/2;
+  const ap = {x:0, y:h/2, z:0};
+  const c = [
+    {x:-half, y:-h/2, z:-half}, {x:half, y:-h/2, z:-half},
+    {x:half, y:-h/2, z:half}, {x:-half, y:-h/2, z:half},
+  ];
+  // Base
+  const bc = Math.floor(N * 0.25);
+  for (let i = 0; i < bc && pts.length < N; i++)
+    pts.push({x:-half+Math.random()*base, y:-h/2, z:-half+Math.random()*base});
+  // 4 triangular faces
+  const fc = Math.floor((N - bc) / 4);
+  for (let f = 0; f < 4; f++) {
+    for (let i = 0; i < fc && pts.length < N; i++) {
+      const t = Math.random() * 0.9 + 0.1;
+      const s = Math.random() * t;
+      const c1 = c[f], c2 = c[(f+1)%4];
+      pts.push({
+        x: ap.x + (c1.x-ap.x)*t + (c2.x-c1.x)*s,
+        y: ap.y + (c1.y-ap.y)*t,
+        z: ap.z + (c1.z-ap.z)*t + (c2.z-c1.z)*s,
+      });
+    }
+  }
+  while (pts.length < N) pts.push({...pts[pts.length-1]});
+  return pts.slice(0, N);
+}
+
+function shapeSphere(N) {
+  const pts = [], r = 3.8;
+  const phi = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i/(N-1))*2;
+    const rad = Math.sqrt(1 - y*y);
+    const theta = phi * i;
+    pts.push({x:r*Math.cos(theta)*rad, y:r*y, z:r*Math.sin(theta)*rad});
+  }
+  return pts;
+}
+
+function shapeTorus(N) {
+  const pts = [], R = 4.0, r = 1.8;
+  for (let i = 0; i < N; i++) {
+    const u = (i/N)*Math.PI*2;
+    const v = (i * 1.61803) % (Math.PI*2);
+    pts.push({
+      x: (R + r*Math.cos(v))*Math.cos(u),
+      y: r*Math.sin(v),
+      z: (R + r*Math.cos(v))*Math.sin(u),
+    });
+  }
+  return pts;
+}
+
+function shapeHelix(N) {
+  const pts = [];
+  const turns = 4.5, height = 8, radius = 3.0;
+  for (let i = 0; i < N; i++) {
+    const t = i / N;
+    const angle = t * turns * Math.PI * 2;
+    const y = -height/2 + t * height;
+    const rNoise = radius + 0.3 * Math.sin(t * 12);
+    pts.push({
+      x: rNoise * Math.cos(angle),
+      y: y,
+      z: rNoise * Math.sin(angle),
+    });
+  }
+  // Add center spine columns
+  return pts;
+}
+
+function shapeBird(N) {
+  const pts = [];
+  const bodyR = 2.8;
+  const halfN = Math.floor(N/2);
+
+  // Body ellipsoid
+  const bCount = Math.floor(N * 0.4);
+  for (let i = 0; i < bCount && pts.length < N; i++) {
+    const th = Math.acos(2*Math.random()-1);
+    const ph = Math.random()*Math.PI*2;
+    const sx=1.0, sy=0.65, sz=0.75;
+    pts.push({
+      x: bodyR*sx*Math.sin(th)*Math.cos(ph),
+      y: bodyR*sy*Math.cos(th),
+      z: bodyR*sz*Math.sin(th)*Math.sin(ph),
+    });
+  }
+
+  // Wings — left and right
+  const wCount = Math.floor(N * 0.4);
+  for (let i = 0; i < wCount && pts.length < N; i++) {
+    const side = (i % 2 === 0) ? 1 : -1;
+    const span = 3.8;
+    const u = Math.random() * span;
+    const v = (Math.random() - 0.5) * 1.5;
+    const wY = 0.3 - 0.6 * Math.cos(u / span * Math.PI/2);
+    pts.push({
+      x: side * u,
+      y: wY + v * 0.3,
+      z: -0.3 - 0.3 * (u/span) + v * 0.5,
+    });
+  }
+
+  // Head
+  for (let i = pts.length; i < N; i++) {
+    const th = Math.acos(2*Math.random()-1);
+    const ph = Math.random()*Math.PI*2;
+    const hr = 0.7;
+    pts.push({
+      x: bodyR*1.0 + hr*Math.sin(th)*Math.cos(ph),
+      y: hr*0.7*Math.cos(th) + 0.4,
+      z: hr*0.7*Math.sin(th)*Math.sin(ph),
+    });
+  }
+  while (pts.length < N) pts.push({...pts[pts.length-1]});
+  return pts.slice(0, N);
+}
+
+function shapeBrain(N) {
+  const pts = [];
+  const R = 2.0, sep = 0.35;
+
+  function hemi(side) {
+    const out = [];
+    const count = Math.floor(N * 0.4);
+    for (let i = 0; i < count; i++) {
+      const th = Math.acos(2*Math.random()-1);
+      const ph = Math.random()*Math.PI*2;
+      if (Math.cos(th) < -0.35) { i--; continue; }
+      const fold = 0.15*Math.sin(th*6)*Math.cos(ph*5);
+      const rr = R + fold;
+      out.push({
+        x: side*sep + rr*Math.sin(th)*Math.cos(ph),
+        y: rr*0.6*Math.cos(th) + 0.2,
+        z: rr*0.75*Math.sin(th)*Math.sin(ph),
+      });
+    }
+    return out;
+  }
+  pts.push(...hemi(-1));
+  pts.push(...hemi(1));
+
+  // Corpus callosum bridge
+  const bridge = N - pts.length;
+  for (let i = 0; i < bridge && pts.length < N; i++) {
+    const t = Math.random();
+    pts.push({
+      x: -sep + t*2*sep + (Math.random()-0.5)*0.3,
+      y: 0.15 + Math.random()*0.35,
+      z: (Math.random()-0.5)*0.7,
+    });
+  }
+  while (pts.length < N) pts.push({...pts[pts.length-1]});
+  return pts.slice(0, N);
+}
+
+function shapeLightbulb(N) {
+  const pts = [];
+  const bulbR = 2.0;
+  const baseH = 1.4;
+
+  // Bulb (elongated sphere)
+  const bCount = Math.floor(N * 0.65);
+  for (let i = 0; i < bCount && pts.length < N; i++) {
+    const th = Math.acos(2*Math.random()-1);
+    const ph = Math.random()*Math.PI*2;
+    const rr = bulbR * (1 - 0.08*Math.sin(th));
+    pts.push({
+      x: rr*Math.sin(th)*Math.cos(ph),
+      y: rr*1.1*Math.cos(th),
+      z: rr*Math.sin(th)*Math.sin(ph),
+    });
+  }
+
+  // Flared base
+  for (let i = pts.length; i < N-1; i++) {
+    const y = -bulbR - Math.random()*baseH;
+    const t = (y + bulbR + baseH) / baseH;
+    const rr = 0.7 + t*1.1;
+    const ph = Math.random()*Math.PI*2;
+    pts.push({ x: rr*Math.cos(ph), y, z: rr*Math.sin(ph) });
+  }
+  // Contact point
+  if (pts.length < N) pts.push({x:0, y:-bulbR-baseH-0.3, z:0});
+  while (pts.length < N) pts.push({...pts[pts.length-1]});
+  return pts.slice(0, N);
+}
+
+function shapeTree(N) {
+  const pts = [];
+  const trunkH = 3.0;
+  const crownR = 3.5;
+  const crownY = 0.5;
+
+  // Trunk
+  const tCount = Math.floor(N * 0.2);
+  for (let i = 0; i < tCount && pts.length < N; i++) {
+    const y = -trunkH/2 + Math.random() * trunkH;
+    const rad = 0.3;
+    const ph = Math.random()*Math.PI*2;
+    pts.push({ x: rad*Math.cos(ph), y, z: rad*Math.sin(ph) });
+  }
+
+  // Main crown — sphere cloud
+  for (let i = pts.length; i < N; i++) {
+    const th = Math.acos(2*Math.random()-1);
+    const ph = Math.random()*Math.PI*2;
+    const rr = crownR * (0.5 + 0.5*Math.random());
+    pts.push({
+      x: rr*Math.sin(th)*Math.cos(ph),
+      y: crownY + rr*Math.cos(th),
+      z: rr*Math.sin(th)*Math.sin(ph),
+    });
+  }
+  while (pts.length < N) pts.push({...pts[pts.length-1]});
+  return pts.slice(0, N);
+}
+
+const SHAPE_MAP = {
+  cube: shapeCube, pyramid: shapePyramid, sphere: shapeSphere,
+  torus: shapeTorus, helix: shapeHelix, bird: shapeBird,
+  brain: shapeBrain, lightbulb: shapeLightbulb, tree: shapeTree,
+};
+
+// ─── Nearest-neighbor edges ────────────────────────────────
+function computeEdges(positions, k = 5) {
+  const edges = [], maxD = 3.2;
+  for (let i = 0; i < positions.length; i++) {
+    const dists = [];
+    for (let j = 0; j < positions.length; j++) {
+      if (i === j) continue;
+      const dx = positions[i].x - positions[j].x;
+      const dy = positions[i].y - positions[j].y;
+      const dz = positions[i].z - positions[j].z;
+      dists.push({ idx: j, d: dx*dx + dy*dy + dz*dz });
+    }
+    dists.sort((a, b) => a.d - b.d);
+    for (let n = 0; n < Math.min(k, dists.length); n++) {
+      if (dists[n].d < maxD*maxD && dists[n].idx > i)
+        edges.push({ source: i, target: dists[n].idx });
+    }
+  }
+  return edges;
+}
+
+// ─── Scene Setup ───────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0e14);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(14, 10, 18);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.prepend(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.rotateSpeed = 0.8;
+controls.minDistance = 5;
+controls.maxDistance = 40;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.8;
+controls.target.set(0, 0, 0);
+
+// ─── Lights ────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x404060, 0.5));
+const dl = new THREE.DirectionalLight(0xf0e6d0, 1.0);
+dl.position.set(8, 16, 10); scene.add(dl);
+const fl = new THREE.DirectionalLight(0x4a7c6f, 0.3);
+fl.position.set(-10, -5, -10); scene.add(fl);
+
+// ─── Star field ────────────────────────────────────────────
+const sg = new THREE.BufferGeometry();
+const sa = new Float32Array(2000*3);
+for (let i = 0; i < 2000*3; i++) sa[i] = (Math.random()-0.5)*200;
+sg.setAttribute('position', new THREE.BufferAttribute(sa, 3));
+scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0x5a6072,size:0.12,transparent:true,opacity:0.5})));
+
+// ─── Graph Group ───────────────────────────────────────────
+const graphGroup = new THREE.Group();
+scene.add(graphGroup);
+
+let nodeCount = 90;
+let currentShape = 'sphere';
+let nodeMeshes = [];
+let edgeLines = [];
+let glowMeshes = [];
+let targetPositions = [];
+const nodeRadius = 0.26;
+
+function buildGraph(shapeName, count) {
+  currentShape = shapeName;
+  nodeCount = count;
+  while (graphGroup.children.length) graphGroup.remove(graphGroup.children[0]);
+  nodeMeshes = []; edgeLines = []; glowMeshes = [];
+
+  generateNodeData(count);
+  const positions = SHAPE_MAP[shapeName](count);
+  targetPositions = positions;
+  const edges = computeEdges(positions, 5);
+
+  document.getElementById('node-count').textContent = count;
+  document.getElementById('edge-count').textContent = edges.length;
+
+  // Ambient ring
+  const rp = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = (i/48)*Math.PI*2;
+    rp.push(new THREE.Vector3(Math.cos(t)*5.5, Math.sin(t)*0.8, Math.sin(t)*3.5));
+  }
+  graphGroup.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(rp),
+    new THREE.LineBasicMaterial({color:0x1a2030,transparent:true,opacity:0.3})
+  ));
+
+  // Edges
+  const eMat = new THREE.LineBasicMaterial({color:0x2a2f40,transparent:true,opacity:0.25});
+  for (const e of edges) {
+    const p1 = positions[e.source], p2 = positions[e.target];
+    const pts = [new THREE.Vector3(p1.x,p1.y,p1.z), new THREE.Vector3(p2.x,p2.y,p2.z)];
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), eMat);
+    line.userData = {source:e.source, target:e.target};
+    graphGroup.add(line);
+    edgeLines.push(line);
+  }
+
+  // Nodes
+  const sGeo = new THREE.SphereGeometry(nodeRadius, 18, 18);
+  const gGeo = new THREE.SphereGeometry(nodeRadius*2.0, 10, 10);
+
+  for (let i = 0; i < count; i++) {
+    const pos = positions[i];
+    const color = nodeData[i].color;
+
+    const gm = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.05});
+    const glow = new THREE.Mesh(gGeo, gm);
+    glow.position.set(pos.x, pos.y, pos.z);
+    graphGroup.add(glow); glowMeshes.push(glow);
+
+    const mat = new THREE.MeshStandardMaterial({
+      color, roughness:0.5, metalness:0.1,
+      emissive:color, emissiveIntensity:0.05,
+    });
+    const mesh = new THREE.Mesh(sGeo, mat);
+    mesh.position.set(pos.x, pos.y, pos.z);
+    mesh.userData = {id: i};
+
+    // Orbital ring
+    const op = [];
+    for (let j = 0; j <= 16; j++) {
+      const th = (j/16)*Math.PI*2;
+      const rr = nodeRadius*2.0;
+      op.push(new THREE.Vector3(Math.cos(th)*rr, Math.sin(th)*rr*0.5, Math.sin(th)*rr*0.3));
+    }
+    const ol = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(op),
+      new THREE.LineBasicMaterial({color, transparent:true, opacity:0.08})
+    );
+    ol.position.copy(mesh.position);
+    graphGroup.add(ol);
+    graphGroup.add(mesh);
+    nodeMeshes.push(mesh);
+  }
+
+  document.getElementById('shape-label').textContent = shapeName;
+  document.getElementById('shape-label').classList.add('visible');
+}
+
+// ─── Morph ─────────────────────────────────────────────────
+function morphTo(newShape) {
+  if (newShape === currentShape) return;
+  targetPositions = SHAPE_MAP[newShape](nodeCount);
+  currentShape = newShape;
+
+  // Rebuild edges
+  const toRemove = [];
+  for (const child of graphGroup.children) {
+    if (child.isLine && child.material && child.material.color &&
+        child.material.color.getHex && child.material.color.getHex() === 0x2a2f40)
+      toRemove.push(child);
+  }
+  for (const child of toRemove) graphGroup.remove(child);
+  edgeLines = [];
+
+  const edges = computeEdges(targetPositions, 5);
+  const eMat = new THREE.LineBasicMaterial({color:0x2a2f40,transparent:true,opacity:0.25});
+  for (const e of edges) {
+    const p1 = targetPositions[e.source], p2 = targetPositions[e.target];
+    const pts = [new THREE.Vector3(p1.x,p1.y,p1.z), new THREE.Vector3(p2.x,p2.y,p2.z)];
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), eMat);
+    line.userData = {source:e.source, target:e.target};
+    graphGroup.add(line);
+    edgeLines.push(line);
+  }
+  document.getElementById('edge-count').textContent = edges.length;
+  document.getElementById('shape-label').textContent = newShape;
+
+  document.querySelectorAll('#shape-selector button').forEach(b => {
+    b.classList.toggle('active', b.dataset.shape === newShape);
+  });
+}
+
+// ─── Lerp nodes to target ──────────────────────────────────
+const tmpV = new THREE.Vector3();
+
+function lerpNodes() {
+  const spd = 0.045;
+  for (let i = 0; i < nodeMeshes.length; i++) {
+    const t = targetPositions[i];
+    if (!t) continue;
+    tmpV.set(t.x, t.y, t.z);
+    if (nodeMeshes[i].position.distanceTo(tmpV) > 0.002) {
+      nodeMeshes[i].position.lerp(tmpV, spd);
+      if (glowMeshes[i]) glowMeshes[i].position.lerp(tmpV, spd);
+    } else {
+      nodeMeshes[i].position.copy(tmpV);
+      if (glowMeshes[i]) glowMeshes[i].position.copy(tmpV);
+    }
+  }
+  // Edge line endpoints follow
+  for (const line of edgeLines) {
+    const p = line.geometry.attributes.position;
+    const s = nodeMeshes[line.userData.source]?.position;
+    const t = nodeMeshes[line.userData.target]?.position;
+    if (s && t) {
+      p.setXYZ(0, s.x, s.y, s.z);
+      p.setXYZ(1, t.x, t.y, t.z);
+      p.needsUpdate = true;
+    }
+  }
+}
+
+// ─── Raycaster ─────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let hoveredId = null;
+const infoEl = document.getElementById('node-info');
+const infoName = document.getElementById('info-name');
+const infoDetail = document.getElementById('info-detail');
+const infoBadge = document.getElementById('info-badge');
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+
+function getIntersection() {
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(nodeMeshes);
+  return hits.length ? hits[0].object.userData.id : null;
+}
+
+function handleHover() {
+  const id = getIntersection();
+  if (id === hoveredId) return;
+  if (hoveredId !== null && nodeMeshes[hoveredId]) {
+    const p = nodeMeshes[hoveredId];
+    p.material.emissiveIntensity = 0.05;
+    p.scale.set(1,1,1);
+    for (const l of edgeLines) { l.material.opacity = 0.25; l.material.color.setHex(0x2a2f40); }
+    infoEl.classList.remove('visible');
+  }
+  hoveredId = id;
+  if (id !== null && nodeMeshes[id]) {
+    const m = nodeMeshes[id];
+    m.material.emissiveIntensity = 0.5;
+    m.scale.set(1.6,1.6,1.6);
+    for (const l of edgeLines) {
+      l.material.opacity = (l.userData.source===id||l.userData.target===id) ? 0.7 : 0.06;
+      if (l.userData.source===id||l.userData.target===id) l.material.color.setHex(0x7a9a6a);
+    }
+    const d = nodeData[id];
+    infoName.textContent = d.name;
+    infoDetail.textContent = `Domain: ${d.domain} · id: ${d.id}`;
+    infoBadge.textContent = d.subgroup;
+    infoEl.classList.add('visible');
+  }
+}
+
+// ─── Render Loop ───────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  lerpNodes();
+  handleHover();
+  const time = Date.now() * 0.001;
+  for (let i = 0; i < nodeMeshes.length; i++) {
+    if (i !== hoveredId) {
+      const p = 1 + Math.sin(time*0.5 + i*0.3) * 0.015;
+      nodeMeshes[i].scale.set(p, p, p);
+    }
+  }
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── UI Controls ───────────────────────────────────────────
+document.querySelectorAll('#shape-selector button').forEach(btn => {
+  btn.addEventListener('click', () => morphTo(btn.dataset.shape));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'r' || e.key === 'R') controls.autoRotate = !controls.autoRotate;
+});
+
+buildGraph('sphere', 90);
+console.log('DataShapes — Select a shape to morph the constellation.');
+</script>
+</body>
+</html>
